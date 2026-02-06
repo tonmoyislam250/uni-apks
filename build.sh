@@ -25,6 +25,7 @@ else
 fi
 
 install_pkg jq
+install_pkg wget
 if [ "$OS" = Android ]; then
     install_pkg java openjdk-21
 else

@@ -124,7 +124,7 @@ get_prebuilts() {
 			name=$(jq -r .name <<<"$asset")
 			file="${dir}/${name}"
 			gh_dl "$file" "$url" >&2 || return 1
-			echo "> ⚙️ » $tag: \`$(cut -d/ -f1 <<<"$src")/${name}\`  " >>"${cl_dir}/changelog.md"
+			echo "> ⚙️ » $tag: \`$(cut -d/ -f1 <<<"$src")/${name}\` " >>"${cl_dir}/changelog.md"
 		else
 			grab_cl=false
 			local for_err=$file
@@ -162,7 +162,7 @@ _req() {
 	local ip="$1" op="$2"
 	shift 2
 	if [ "$op" = - ]; then
-		if ! curl -L -c "$TEMP_DIR/cookie.txt" -b "$TEMP_DIR/cookie.txt" --connect-timeout 5 --retry 0 --fail -s -S "$@" "$ip"; then
+		if ! wget -q -O - --load-cookies "$TEMP_DIR/cookie.txt" --save-cookies "$TEMP_DIR/cookie.txt" --keep-session-cookies --timeout=5 --tries=1 "$@" "$ip"; then
 			epr "Request failed: $ip"
 			return 1
 		fi
@@ -174,19 +174,19 @@ _req() {
 			while [ -f "$dlp" ]; do sleep 1; done
 			return
 		fi
-		if ! curl -L -c "$TEMP_DIR/cookie.txt" -b "$TEMP_DIR/cookie.txt" --connect-timeout 5 --retry 0 --fail -s -S "$@" "$ip" -o "$dlp"; then
+		if ! wget -q -O "$dlp" --load-cookies "$TEMP_DIR/cookie.txt" --save-cookies "$TEMP_DIR/cookie.txt" --keep-session-cookies --timeout=5 --tries=1 "$@" "$ip"; then
 			epr "Request failed: $ip"
 			return 1
 		fi
 		mv -f "$dlp" "$op"
 	fi
 }
-req() { _req "$1" "$2" -H "User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:146.0) Gecko/20100101 Firefox/146.0"; }
-gh_req() { _req "$1" "$2" -H "$GH_HEADER"; }
+req() { _req "$1" "$2" --header="User-Agent: Mozilla/5.0 (Android 16; Mobile; rv:147.0) Gecko/147.0 Firefox/147.0" --header="Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8" --header="Accept-Language: en-US,en;q=0.9" --header="Connection: keep-alive" --header="Upgrade-Insecure-Requests: 1" --header="Cache-Control: max-age=0"; }
+gh_req() { _req "$1" "$2" --header="$GH_HEADER"; }
 gh_dl() {
 	if [ ! -f "$1" ]; then
 		pr "Getting '$1' from '$2'"
-		_req "$2" "$1" -H "$GH_HEADER" -H "Accept: application/octet-stream"
+		_req "$2" "$1" --header="$GH_HEADER" --header="Accept: application/octet-stream"
 	fi
 }
 
