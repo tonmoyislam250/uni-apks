@@ -543,11 +543,11 @@ build_uni() {
 		p_patcher_args=("${p_patcher_args[@]//-[ei] ${microg_patch}/}")
 	fi
 
-	local version_code_patch
-    version_code_patch=$(grep "^Name: " <<<"$list_patches" | grep -i "change version code" || :) version_code_patch=${version_code_patch#*: }
-    if [ -n "$version_code_patch" ] && [[ ${p_patcher_args[*]} =~ $version_code_patch ]]; then
-        epr "You cant include/exclude version code patch as that's done by builder automatically."
-        p_patcher_args=("${p_patcher_args[@]//-[ei] ${version_code_patch}/}")
+	local disable_psu_patch
+    disable_psu_patch=$(grep "^Name: " <<<"$list_patches" | grep -i "disable play store updates" || :) disable_psu_patch=${disable_psu_patch#*: }
+    if [ -n "$disable_psu_patch" ] && [[ ${p_patcher_args[*]} =~ $disable_psu_patch ]]; then
+        epr "You cant include/exclude disable play store updates patch as that's done by builder automatically."
+        p_patcher_args=("${p_patcher_args[@]//-[ei] ${disable_psu_patch}/}")
     fi
 
 	local patcher_args patched_apk
@@ -559,8 +559,8 @@ build_uni() {
 	if [ -n "$microg_patch" ]; then
 		patcher_args+=("-e \"${microg_patch}\"")
 	fi
-	if [ -n "$version_code_patch" ]; then
-        patcher_args+=("-e \"${version_code_patch}\"")
+	if [ -n "$disable_psu_patch" ]; then
+        patcher_args+=("-e \"${disable_psu_patch}\"")
     fi
 	patched_apk="${TEMP_DIR}/${app_name_l}-${brand_f}-${version_f}-${arch_f}.apk"
 
