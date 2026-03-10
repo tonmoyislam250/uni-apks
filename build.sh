@@ -11,6 +11,8 @@ fi
 
 source utils.sh
 set_prebuilts
+_UA=$(ua)
+export _UA
 
 install_pkg jq
 install_pkg java openjdk-21-jdk
