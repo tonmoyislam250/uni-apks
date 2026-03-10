@@ -240,27 +240,6 @@ isoneof() {
 	return 1
 }
 
-merge_splits() {
-	local bundle=$1 output=$2
-	pr "Merging splits"
-	gh_dl "$TEMP_DIR/apkeditor.jar" "https://github.com/REAndroid/APKEditor/releases/download/V1.4.7/APKEditor-1.4.7.jar" >/dev/null || return 1
-	if ! OP=$(java -jar "$TEMP_DIR/apkeditor.jar" merge -i "${bundle}" -o "${bundle}.mzip" -clean-meta -f 2>&1); then
-		epr "Apkeditor ERROR: $OP"
-		return 1
-	fi
-	# this is required because of apksig
-	mkdir "${bundle}-zip"
-	unzip -qo "${bundle}.mzip" -d "${bundle}-zip"
-	(
-		cd "${bundle}-zip" || abort
-		zip -0rq "${CWD}/${bundle}.zip" .
-	)
-	cp "${bundle}.zip" "${output}"
-	local ret=$?
-	rm -r "${bundle}-zip" "${bundle}.zip" "${bundle}.mzip" || :
-	return $ret
-}
-
 # -------------------- apkmirror --------------------
 apkmirror_search() {
 	local resp="$1" dpi="$2" arch="$3" apk_bundle="$4"
@@ -320,7 +299,6 @@ dl_apkmirror() {
 
 	if [ "$is_bundle" = true ]; then
 		req "$url" "${output}.apkm" || return 1
-		merge_splits "${output}.apkm" "${output}"
 	else
 		req "$url" "${output}" || return 1
 	fi
@@ -402,7 +380,6 @@ dl_uptodown() {
 	data_url=$($HTMLQ "#detail-download-button" --attribute data-url <<<"$resp") || return 1
 	if [ $is_bundle = true ]; then
 		req "https://dw.uptodown.com/dwn/${data_url}" "$output.apkm" || return 1
-		merge_splits "${output}.apkm" "${output}"
 	else
 		req "https://dw.uptodown.com/dwn/${data_url}" "$output"
 	fi
@@ -519,7 +496,7 @@ build_uni() {
 	local version_f=${version// /}
 	version_f=${version_f#v}
 	local stock_apk="${TEMP_DIR}/${pkg_name}-${version_f}-${arch_f}.apk"
-	if [ ! -f "$stock_apk" ]; then
+	if [ ! -f "$stock_apk" ] && [ ! -f "${stock_apk}.apkm" ]; then
 		for dl_p in archive apkmirror uptodown; do
 			if [ -z "${args[${dl_p}_dlurl]}" ]; then continue; fi
 			pr "Downloading '${table}' from '${dl_p}'"
@@ -535,11 +512,25 @@ build_uni() {
 			fi
 			break
 		done
-		if [ ! -f "$stock_apk" ]; then return 0; fi
+		if [ ! -f "$stock_apk" ] && [ ! -f "${stock_apk}.apkm" ]; then return 0; fi
 	fi
-	if [ ! -f "${stock_apk}.apkm" ] && ! OP=$(check_sig "$stock_apk" "$pkg_name" 2>&1) && ! grep -qFx "ERROR: Missing META-INF/MANIFEST.MF" <<<"$OP"; then
-		epr "$pkg_name not building, apk signature mismatch '$stock_apk': $OP"
-		return 0
+	if [ -f "${stock_apk}.apkm" ]; then
+    	local tmp_base
+    	tmp_base=$(mktemp --suffix=.apk)
+    	if ! unzip -p "${stock_apk}.apkm" base.apk > "$tmp_base" 2>/dev/null || [ ! -s "$tmp_base" ]; then
+        	unzip -p "${stock_apk}.apkm" "${pkg_name}.apk" > "$tmp_base" 2>/dev/null
+    	fi
+    	if [ -s "$tmp_base" ]; then
+        	if ! OP=$(check_sig "$tmp_base" "$pkg_name" 2>&1); then
+            	rm -f "$tmp_base"
+            	epr "$pkg_name not building, apk signature mismatch in bundle '$stock_apk': $OP"
+            	return 0
+        	fi
+    	fi
+    	rm -f "$tmp_base"
+	elif ! OP=$(check_sig "$stock_apk" "$pkg_name" 2>&1) && ! grep -qFx "ERROR: Missing META-INF/MANIFEST.MF" <<<"$OP"; then
+    	epr "$pkg_name not building, apk signature mismatch '$stock_apk': $OP"
+    	return 0
 	fi
 	log "🟢 » ${table}: \`${version}\`"
 
@@ -582,8 +573,10 @@ build_uni() {
     else
 		patcher_args+=("--striplibs arm64-v8a,armeabi-v7a")
     fi
+	local stock_apk_input
+    if [ -f "${stock_apk}.apkm" ]; then stock_apk_input="${stock_apk}.apkm"; else stock_apk_input="$stock_apk"; fi
 	if [ "${NORB:-}" != true ] || [ ! -f "$patched_apk" ]; then
-		if ! patch_apk "$stock_apk" "$patched_apk" "${patcher_args[*]}" "${args[cli]}" "${args[ptjar]}"; then
+		if ! patch_apk "$stock_apk_input" "$patched_apk" "${patcher_args[*]}" "${args[cli]}" "${args[ptjar]}"; then
 			epr "Building '${table}' failed!"
 			return 0
 		fi
