@@ -121,9 +121,12 @@ for table_name in $(toml_get_table_names); do
 		idx=$((idx + 1))
 		build_uni "$(declare -p app_args)" &
 	else
-		idx=$((idx + 1))
-		build_uni "$(declare -p app_args)" &
-	fi
+    	if ! isoneof "${app_args[arch]}" "all"; then
+        	app_args[table]="${table_name} (${app_args[arch]})"
+    	fi
+    	idx=$((idx + 1))
+    	build_uni "$(declare -p app_args)" &
+fi
 done
 wait
 rm -rf temp/tmp.*

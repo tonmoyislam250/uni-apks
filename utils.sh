@@ -596,23 +596,30 @@ build_uni() {
 list_args() { tr -d '\t\r' <<<"$1" | tr -s ' ' | sed 's/" "/"\n"/g' | sed 's/\([^"]\)"\([^"]\)/\1'\''\2/g' | grep -v '^$' || :; }
 join_args() { list_args "$1" | sed "s/^/${2} /" | paste -sd " " - || :; }
 separate_config() {
-	if [[ $# -ne 3 ]]; then
-		echo "Usage: separate_config <config_file> <key_to_match> <output_file>"
-		return 1
-	fi
-	local config_file="$1" key_to_match="$2" output_file="$3" section_content
-	section_content=$(awk -v key="$key_to_match" '
-	  BEGIN { print "[" key "]" }
-	  /^\[/ && tolower($1) == "[" tolower(key) "]" { in_section = 1; next }
-	  /^\[/ { in_section = 0 }
-	  in_section == 1
-	' "$config_file")
-	if [[ -z "$section_content" ]]; then
-		echo "Key '$key_to_match' not found in the config file."
-		return 1
-	fi
-	echo "$section_content" > "$output_file"
-	echo "Section for '$key_to_match' written to $output_file"
+    if [[ $# -lt 3 ]]; then
+        echo "Usage: separate_config <config_file> <key_to_match> <output_file> [arch_override]"
+        return 1
+    fi
+    local config_file="$1" key_to_match="$2" output_file="$3" arch_override="${4:-}" section_content
+    section_content=$(awk -v key="$key_to_match" '
+      BEGIN { print "[" key "]" }
+      /^\[/ && tolower($1) == "[" tolower(key) "]" { in_section = 1; next }
+      /^\[/ { in_section = 0 }
+      in_section == 1
+    ' "$config_file")
+    if [[ -z "$section_content" ]]; then
+        echo "Key '$key_to_match' not found in the config file."
+        return 1
+    fi
+    if [ -n "$arch_override" ]; then
+        if grep -q '^arch = ' <<<"$section_content"; then
+            section_content=$(sed 's/^arch = .*/arch = "'"$arch_override"'"/' <<<"$section_content")
+        else
+            section_content+=$'\narch = "'"$arch_override"'"'
+        fi
+    fi
+    echo "$section_content" > "$output_file"
+    echo "Section for '$key_to_match' written to $output_file"
 }
 combine_logs() {
 	local build_logs_dir="${1:-build-logs}"
@@ -656,7 +663,13 @@ get_matrix() {
 		table_t=$(toml_get_table "$table")
 		brand=$(toml_get "$table_t" brand) || brand="$def_brand"
 		if [ "${brand,,}" = "$patch_source_lower" ]; then
-			ids+=("{\"id\":\"${table}\"}")
+    		arch=$(toml_get "$table_t" arch) || arch="all"
+    		if [ "$arch" = "both" ]; then
+        		ids+=("{\"id\":\"${table}\",\"arch\":\"arm64-v8a\"}")
+        		ids+=("{\"id\":\"${table}\",\"arch\":\"arm-v7a\"}")
+    		else
+        		ids+=("{\"id\":\"${table}\"}")
+    		fi
 		fi
 	done < <(toml_get_table_names)
 

@@ -58,9 +58,9 @@ jobs:
           fetch-depth: 0
           submodules: true
 
-      - name: Generate ${{ matrix.id }} config
+      - name: Generate ${{ matrix.id }}${{ matrix.arch && format(' ({0})', matrix.arch) || '' }} config
         run: |
-          ./build.sh separate-config config.toml ${{ matrix.id }} sep_config.toml
+          ./build.sh separate-config config.toml ${{ matrix.id }} sep_config.toml ${{ matrix.arch }}
           cat sep_config.toml
 
       - name: Build APKs
@@ -73,7 +73,7 @@ jobs:
       - name: Upload APKs as artifact
         uses: actions/upload-artifact@v7
         with:
-          name: apks-${{ matrix.id }}
+          name: apks-${{ matrix.id }}${{ matrix.arch && format('-{0}', matrix.arch) || '' }}
           path: ./build/*.apk
           if-no-files-found: warn
           retention-days: 1
@@ -81,7 +81,7 @@ jobs:
       - name: Upload build log as artifact
         uses: actions/upload-artifact@v7
         with:
-          name: build-log-${{ matrix.id }}
+          name: build-log-${{ matrix.id }}${{ matrix.arch && format('-{0}', matrix.arch) || '' }}
           path: build.md
           if-no-files-found: warn
           retention-days: 1
