@@ -12,6 +12,10 @@ fi
 source utils.sh
 set_prebuilts
 
+install_pkg jq
+install_pkg java openjdk-21-jdk
+install_pkg zip
+
 if [ "${1-}" = "separate-config" ] || [ "${1-}" = "combine-logs" ] || [ "${1-}" = "get-matrix" ]; then
 	case "${1}" in
 		separate-config) separate_config "${@:2}" ;;
@@ -20,10 +24,6 @@ if [ "${1-}" = "separate-config" ] || [ "${1-}" = "combine-logs" ] || [ "${1-}" 
 	esac
 	exit 0
 fi
-
-install_pkg jq
-install_pkg java openjdk-21-jdk
-install_pkg zip
 
 vtf() { if ! isoneof "${1}" "true" "false"; then abort "ERROR: '${1}' is not a valid option for '${2}': only true or false is allowed"; fi; }
 
@@ -61,10 +61,10 @@ for table_name in $(toml_get_table_names); do
 	patches_src=$(toml_get "$t" patches-source) || patches_src=$DEF_PATCHES_SRC
 
 	if [ "${BUILD_MODE:-}" = "dev" ]; then
-        patches_ver="dev"
-    else
-        patches_ver=$(toml_get "$t" patches-version) || patches_ver=$DEF_PATCHES_VER
-    fi
+		patches_ver="dev"
+	else
+		patches_ver=$(toml_get "$t" patches-version) || patches_ver=$DEF_PATCHES_VER
+	fi
 	
 	cli_src=$(toml_get "$t" cli-source) || cli_src=$DEF_CLI_SRC
 	cli_ver=$(toml_get "$t" cli-version) || cli_ver=$DEF_CLI_VER
@@ -104,8 +104,6 @@ for table_name in $(toml_get_table_names); do
 	fi
 
 	app_args[dpi]=$(toml_get "$t" dpi) || app_args[dpi]="$DEF_DPI_LIST"
-	table_name_f=${table_name,,}
-	table_name_f=${table_name_f// /-}
 
 	if [ "${app_args[arch]}" = both ]; then
 		app_args[table]="$table_name (arm64-v8a)"
@@ -121,12 +119,12 @@ for table_name in $(toml_get_table_names); do
 		idx=$((idx + 1))
 		build_uni "$(declare -p app_args)" &
 	else
-    	if ! isoneof "${app_args[arch]}" "all"; then
-        	app_args[table]="${table_name} (${app_args[arch]})"
-    	fi
-    	idx=$((idx + 1))
-    	build_uni "$(declare -p app_args)" &
-fi
+		if ! isoneof "${app_args[arch]}" "all"; then
+			app_args[table]="${table_name} (${app_args[arch]})"
+		fi
+		idx=$((idx + 1))
+		build_uni "$(declare -p app_args)" &
+	fi
 done
 wait
 rm -rf temp/tmp.*

@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 
-CWD=$(pwd)
 TEMP_DIR="temp"
 BIN_DIR="bin"
 BUILD_DIR="build"
@@ -48,28 +47,28 @@ abort() {
 java() { command java "$@"; }
 
 install_pkg() {
-    local cmd=$1
-    local pkg=${2:-$1} 
-    if command -v "$cmd" >/dev/null 2>&1; then
-        return 0
-    fi
-    pr "Installing $pkg..."
-    
-    if command -v apt-get >/dev/null 2>&1; then
-        sudo apt-get install -y "$pkg"
-    elif command -v dnf >/dev/null 2>&1; then
-        sudo dnf install -y "$pkg"
-    elif command -v yum >/dev/null 2>&1; then
-        sudo yum install -y "$pkg"
-    elif command -v pacman >/dev/null 2>&1; then
-        sudo pacman -S --noconfirm "$pkg"
-    elif command -v apk >/dev/null 2>&1; then
-        sudo apk add "$pkg"
-    else
-        abort "Cannot auto-install $pkg. Please install it manually."
-    fi
+	local cmd=$1
+	local pkg=${2:-$1}
+	if command -v "$cmd" >/dev/null 2>&1; then
+		return 0
+	fi
+	pr "Installing $pkg..."
 
-    command -v "$cmd" >/dev/null 2>&1 || abort "Failed to install $pkg"
+	if command -v apt-get >/dev/null 2>&1; then
+		sudo apt-get install -y "$pkg"
+	elif command -v dnf >/dev/null 2>&1; then
+		sudo dnf install -y "$pkg"
+	elif command -v yum >/dev/null 2>&1; then
+		sudo yum install -y "$pkg"
+	elif command -v pacman >/dev/null 2>&1; then
+		sudo pacman -S --noconfirm "$pkg"
+	elif command -v apk >/dev/null 2>&1; then
+		sudo apk add "$pkg"
+	else
+		abort "Cannot auto-install $pkg. Please install it manually."
+	fi
+
+	command -v "$cmd" >/dev/null 2>&1 || abort "Failed to install $pkg"
 }
 
 get_prebuilts() {
@@ -175,13 +174,15 @@ _req() {
 	fi
 }
 ua() {
-    local ver major
-    ver=$(curl -sf "https://product-details.mozilla.org/1.0/firefox_versions.json" | grep -o '"LATEST_FIREFOX_VERSION"[[:space:]]*:[[:space:]]*"[0-9.]*"' | grep -o '[0-9][0-9.]*') || ver="148.0"
-    major=${ver%%.*}
-    echo "Mozilla/5.0 (X11; Linux x86_64; rv:${major}.0) Gecko/20100101 Firefox/${major}.0"
+	local ver major
+	ver=$(curl -sf "https://product-details.mozilla.org/1.0/firefox_versions.json" | grep -o '"LATEST_FIREFOX_VERSION"[[:space:]]*:[[:space:]]*"[0-9.]*"' | grep -o '[0-9][0-9.]*') || ver="148.0"
+	major=${ver%%.*}
+	echo "Mozilla/5.0 (X11; Linux x86_64; rv:${major}.0) Gecko/20100101 Firefox/${major}.0"
 }
-_UA=$(ua)
-req() { _req "$1" "$2" --http2 --tlsv1.3 -A "$_UA"; }
+req() {
+	if [ -z "${_UA:-}" ]; then _UA=$(ua); fi
+	_req "$1" "$2" --http2 --tlsv1.3 -A "$_UA"
+}
 gh_req() { _req "$1" "$2" -H "$GH_HEADER"; }
 gh_dl() {
 	if [ ! -f "$1" ]; then
@@ -199,7 +200,7 @@ get_highest_ver() {
 }
 semver_validate() {
 	local a="${1%-*}"
-	local a="${a#v}"
+	a="${a#v}"
 	local ac="${a//[.0-9]/}"
 	[ ${#ac} = 0 ]
 }
@@ -515,22 +516,22 @@ build_uni() {
 		if [ ! -f "$stock_apk" ] && [ ! -f "${stock_apk}.apkm" ]; then return 0; fi
 	fi
 	if [ -f "${stock_apk}.apkm" ]; then
-    	local tmp_base
-    	tmp_base=$(mktemp --suffix=.apk)
-    	if ! unzip -p "${stock_apk}.apkm" base.apk > "$tmp_base" 2>/dev/null || [ ! -s "$tmp_base" ]; then
-        	unzip -p "${stock_apk}.apkm" "${pkg_name}.apk" > "$tmp_base" 2>/dev/null
-    	fi
-    	if [ -s "$tmp_base" ]; then
-        	if ! OP=$(check_sig "$tmp_base" "$pkg_name" 2>&1); then
-            	rm -f "$tmp_base"
-            	epr "$pkg_name not building, apk signature mismatch in bundle '$stock_apk': $OP"
-            	return 0
-        	fi
-    	fi
-    	rm -f "$tmp_base"
+		local tmp_base
+		tmp_base=$(mktemp --suffix=.apk)
+		if ! unzip -p "${stock_apk}.apkm" base.apk > "$tmp_base" 2>/dev/null || [ ! -s "$tmp_base" ]; then
+			unzip -p "${stock_apk}.apkm" "${pkg_name}.apk" > "$tmp_base" 2>/dev/null
+		fi
+		if [ -s "$tmp_base" ]; then
+			if ! OP=$(check_sig "$tmp_base" "$pkg_name" 2>&1); then
+				rm -f "$tmp_base"
+				epr "$pkg_name not building, apk signature mismatch in bundle '$stock_apk': $OP"
+				return 0
+			fi
+		fi
+		rm -f "$tmp_base"
 	elif ! OP=$(check_sig "$stock_apk" "$pkg_name" 2>&1) && ! grep -qFx "ERROR: Missing META-INF/MANIFEST.MF" <<<"$OP"; then
-    	epr "$pkg_name not building, apk signature mismatch '$stock_apk': $OP"
-    	return 0
+		epr "$pkg_name not building, apk signature mismatch '$stock_apk': $OP"
+		return 0
 	fi
 	log "🟢 » ${table}: \`${version}\`"
 
@@ -542,11 +543,11 @@ build_uni() {
 	fi
 
 	local disable_psu_patch
-    disable_psu_patch=$(grep "^Name: " <<<"$list_patches" | grep -i "disable play store updates" || :) disable_psu_patch=${disable_psu_patch#*: }
-    if [ -n "$disable_psu_patch" ] && [[ ${p_patcher_args[*]} =~ $disable_psu_patch ]]; then
-        epr "You cant include/exclude disable play store updates patch as that's done by builder automatically."
-        p_patcher_args=("${p_patcher_args[@]//-[ei] ${disable_psu_patch}/}")
-    fi
+	disable_psu_patch=$(grep "^Name: " <<<"$list_patches" | grep -i "disable play store updates" || :) disable_psu_patch=${disable_psu_patch#*: }
+	if [ -n "$disable_psu_patch" ] && [[ ${p_patcher_args[*]} =~ $disable_psu_patch ]]; then
+		epr "You cant include/exclude disable play store updates patch as that's done by builder automatically."
+		p_patcher_args=("${p_patcher_args[@]//-[ei] ${disable_psu_patch}/}")
+	fi
 
 	local patcher_args patched_apk
 	local brand_f=${args[brand],,}
@@ -558,8 +559,8 @@ build_uni() {
 		patcher_args+=("-e \"${microg_patch}\"")
 	fi
 	if [ -n "$disable_psu_patch" ]; then
-        patcher_args+=("-e \"${disable_psu_patch}\"")
-    fi
+		patcher_args+=("-e \"${disable_psu_patch}\"")
+	fi
 	patched_apk="${TEMP_DIR}/${app_name_l}-${brand_f}-${version_f}-${arch_f}.apk"
 
 	if [ "$arch" = "arm64-v8a" ]; then
@@ -570,11 +571,11 @@ build_uni() {
 		patcher_args+=("--striplibs x86")
 	elif [ "$arch" = "x86_64" ]; then
 		patcher_args+=("--striplibs x86_64")
-    else
+	else
 		patcher_args+=("--striplibs arm64-v8a,armeabi-v7a")
-    fi
+	fi
 	local stock_apk_input
-    if [ -f "${stock_apk}.apkm" ]; then stock_apk_input="${stock_apk}.apkm"; else stock_apk_input="$stock_apk"; fi
+	if [ -f "${stock_apk}.apkm" ]; then stock_apk_input="${stock_apk}.apkm"; else stock_apk_input="$stock_apk"; fi
 	if [ "${NORB:-}" != true ] || [ ! -f "$patched_apk" ]; then
 		if ! patch_apk "$stock_apk_input" "$patched_apk" "${patcher_args[*]}" "${args[cli]}" "${args[ptjar]}"; then
 			epr "Building '${table}' failed!"
@@ -589,30 +590,30 @@ build_uni() {
 list_args() { tr -d '\t\r' <<<"$1" | tr -s ' ' | sed 's/" "/"\n"/g' | sed 's/\([^"]\)"\([^"]\)/\1'\''\2/g' | grep -v '^$' || :; }
 join_args() { list_args "$1" | sed "s/^/${2} /" | paste -sd " " - || :; }
 separate_config() {
-    if [[ $# -lt 3 ]]; then
-        echo "Usage: separate_config <config_file> <key_to_match> <output_file> [arch_override]"
-        return 1
-    fi
-    local config_file="$1" key_to_match="$2" output_file="$3" arch_override="${4:-}" section_content
-    section_content=$(awk -v key="$key_to_match" '
-      BEGIN { print "[" key "]" }
-      /^\[/ && tolower($1) == "[" tolower(key) "]" { in_section = 1; next }
-      /^\[/ { in_section = 0 }
-      in_section == 1
-    ' "$config_file")
-    if [[ -z "$section_content" ]]; then
-        echo "Key '$key_to_match' not found in the config file."
-        return 1
-    fi
-    if [ -n "$arch_override" ]; then
-        if grep -q '^arch = ' <<<"$section_content"; then
-            section_content=$(sed 's/^arch = .*/arch = "'"$arch_override"'"/' <<<"$section_content")
-        else
-            section_content+=$'\narch = "'"$arch_override"'"'
-        fi
-    fi
-    echo "$section_content" > "$output_file"
-    echo "Section for '$key_to_match' written to $output_file"
+	if [[ $# -lt 3 ]]; then
+		echo "Usage: separate_config <config_file> <key_to_match> <output_file> [arch_override]"
+		return 1
+	fi
+	local config_file="$1" key_to_match="$2" output_file="$3" arch_override="${4:-}" section_content
+	section_content=$(awk -v key="$key_to_match" '
+		BEGIN { print "[" key "]" }
+		/^\[/ && tolower($1) == "[" tolower(key) "]" { in_section = 1; next }
+		/^\[/ { in_section = 0 }
+		in_section == 1
+	' "$config_file")
+	if [[ -z "$section_content" ]]; then
+		echo "Key '$key_to_match' not found in the config file."
+		return 1
+	fi
+	if [ -n "$arch_override" ]; then
+		if grep -q '^arch = ' <<<"$section_content"; then
+			section_content=$(sed 's/^arch = .*/arch = "'"$arch_override"'"/' <<<"$section_content")
+		else
+			section_content+=$'\narch = "'"$arch_override"'"'
+		fi
+	fi
+	echo "$section_content" > "$output_file"
+	echo "Section for '$key_to_match' written to $output_file"
 }
 combine_logs() {
 	local build_logs_dir="${1:-build-logs}"
@@ -656,13 +657,13 @@ get_matrix() {
 		table_t=$(toml_get_table "$table")
 		brand=$(toml_get "$table_t" brand) || brand="$def_brand"
 		if [ "${brand,,}" = "$patch_source_lower" ]; then
-    		arch=$(toml_get "$table_t" arch) || arch="all"
-    		if [ "$arch" = "both" ]; then
-        		ids+=("{\"id\":\"${table}\",\"arch\":\"arm64-v8a\"}")
-        		ids+=("{\"id\":\"${table}\",\"arch\":\"arm-v7a\"}")
-    		else
-        		ids+=("{\"id\":\"${table}\"}")
-    		fi
+			arch=$(toml_get "$table_t" arch) || arch="all"
+			if [ "$arch" = "both" ]; then
+				ids+=("{\"id\":\"${table}\",\"arch\":\"arm64-v8a\"}")
+				ids+=("{\"id\":\"${table}\",\"arch\":\"arm-v7a\"}")
+			else
+				ids+=("{\"id\":\"${table}\"}")
+			fi
 		fi
 	done < <(toml_get_table_names)
 

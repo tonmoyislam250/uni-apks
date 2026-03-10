@@ -39,7 +39,7 @@ Here you can download and use applications selected for this repository, which a
 
 ### [🧩 `Piko`](https://github.com/crimera/piko) [![Static Badge](https://img.shields.io/badge/All-Releases-4500FF?style=flat-square&logo=android&logoColor=%23FFFFFF)](https://github.com/krvstek/uni-apks/releases?q=-piko&expanded=true)
 <details>
-    
+
 | 📦 Name | 💎 Obtainium |
 |:-------:|:------------:|
 | <picture><img src="https://play-lh.googleusercontent.com/XyI6Hyz9AFg7E_joVzX2zh6CpWm9B2DG2JuEz5meCFVm4-wTKTnHgqbmg62iFKe4Gzca=s48-rw" width="20" height="20"></picture> [`X`](https://play.google.com/store/apps/details?id=com.twitter.android) | [![Obtainium](https://img.shields.io/badge/Import-Config-4500FF?style=flat-square&logo=obtainium&logoColor=%23FFFFFF)][x-piko] |
