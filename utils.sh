@@ -45,7 +45,7 @@ abort() {
 	epr "ABORT: ${1-}"
 	exit 1
 }
-java() { env -i java "$@"; }
+java() { command java "$@"; }
 
 install_pkg() {
     local cmd=$1
@@ -174,7 +174,14 @@ _req() {
 		mv -f "$dlp" "$op"
 	fi
 }
-req() { _req "$1" "$2" --http2 --tlsv1.3 -A "Mozilla/5.0 (X11; Linux x86_64; rv:147.0) Gecko/20100101 Firefox/147.0"; }
+ua() {
+    local ver major
+    ver=$(curl -sf "https://product-details.mozilla.org/1.0/firefox_versions.json" | grep -o '"LATEST_FIREFOX_VERSION"[[:space:]]*:[[:space:]]*"[0-9.]*"' | grep -o '[0-9][0-9.]*') || ver="148.0"
+    major=${ver%%.*}
+    echo "Mozilla/5.0 (X11; Linux x86_64; rv:${major}.0) Gecko/20100101 Firefox/${major}.0"
+}
+_UA=$(ua)
+req() { _req "$1" "$2" --http2 --tlsv1.3 -A "$_UA"; }
 gh_req() { _req "$1" "$2" -H "$GH_HEADER"; }
 gh_dl() {
 	if [ ! -f "$1" ]; then
@@ -564,26 +571,23 @@ build_uni() {
     fi
 	patched_apk="${TEMP_DIR}/${app_name_l}-${brand_f}-${version_f}-${arch_f}.apk"
 
-	local stock_apk_to_patch="${stock_apk}.stripped.apk"
-	cp -f "$stock_apk" "$stock_apk_to_patch"
 	if [ "$arch" = "arm64-v8a" ]; then
-		zip -d "$stock_apk_to_patch" "lib/armeabi-v7a/*" "lib/x86_64/*" "lib/x86/*" >/dev/null 2>&1 || :
+		patcher_args+=("--striplibs arm64-v8a")
 	elif [ "$arch" = "arm-v7a" ]; then
-		zip -d "$stock_apk_to_patch" "lib/arm64-v8a/*" "lib/x86_64/*" "lib/x86/*" >/dev/null 2>&1 || :
+		patcher_args+=("--striplibs armeabi-v7a")
 	elif [ "$arch" = "x86" ]; then
-		zip -d "$stock_apk_to_patch" "lib/arm64-v8a/*" "lib/x86_64/*" "lib/armeabi-v7a/*" >/dev/null 2>&1 || :
+		patcher_args+=("--striplibs x86")
 	elif [ "$arch" = "x86_64" ]; then
-		zip -d "$stock_apk_to_patch" "lib/arm64-v8a/*" "lib/armeabi-v7a/*" "lib/x86/*" >/dev/null 2>&1 || :
+		patcher_args+=("--striplibs x86_64")
     else
-		zip -d "$stock_apk_to_patch" "lib/x86_64/*" "lib/x86/*" >/dev/null 2>&1 || :
+		patcher_args+=("--striplibs arm64-v8a,armeabi-v7a")
     fi
 	if [ "${NORB:-}" != true ] || [ ! -f "$patched_apk" ]; then
-		if ! patch_apk "$stock_apk_to_patch" "$patched_apk" "${patcher_args[*]}" "${args[cli]}" "${args[ptjar]}"; then
+		if ! patch_apk "$stock_apk" "$patched_apk" "${patcher_args[*]}" "${args[cli]}" "${args[ptjar]}"; then
 			epr "Building '${table}' failed!"
 			return 0
 		fi
 	fi
-	rm "$stock_apk_to_patch"
 	local apk_output="${BUILD_DIR}/${app_name_l}-${brand_f}-v${version_f}-${arch_f}.apk"
 	mv -f "$patched_apk" "$apk_output"
 	pr "Built ${table}: '${apk_output}'"
