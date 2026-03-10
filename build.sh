@@ -14,7 +14,7 @@ set_prebuilts
 
 install_pkg jq
 install_pkg java openjdk-21-jdk
-install_pkg zip
+install_pkg unzip
 
 if [ "${1-}" = "separate-config" ] || [ "${1-}" = "combine-logs" ] || [ "${1-}" = "get-matrix" ]; then
 	case "${1}" in
@@ -132,11 +132,5 @@ if [ -z "$(ls -A1 "${BUILD_DIR}")" ]; then abort "All builds failed."; fi
 
 log "\n- ▶️ » Install [MicroG-RE](https://github.com/MorpheApp/MicroG-RE/releases) for YouTube and YT Music APKs\n"
 log "$(cat "$TEMP_DIR"/*/changelog.md)"
-
-SKIPPED=$(cat "$TEMP_DIR"/skipped 2>/dev/null || :)
-if [ -n "$SKIPPED" ]; then
-	log "\nSkipped:"
-	log "$SKIPPED"
-fi
 
 pr "Done"
