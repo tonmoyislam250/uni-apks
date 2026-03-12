@@ -3,16 +3,15 @@
 TEMP_DIR="temp"
 BIN_DIR="bin"
 BUILD_DIR="build"
-
 if [ "${GITHUB_TOKEN-}" ]; then GH_HEADER="Authorization: token ${GITHUB_TOKEN}"; else GH_HEADER=; fi
 
 toml_prep() {
-	if [ ! -f "$1" ]; then return 1; fi
-	if [ "${1##*.}" == toml ]; then
-		__TOML__=$($TOML --output json --file "$1" .)
-	elif [ "${1##*.}" == json ]; then
-		__TOML__=$(cat "$1")
-	else abort "config extension not supported"; fi
+	[[ -f "$1" ]] || return 1
+	case "${1##*.}" in
+		toml) __TOML__=$("$TOML" --output json --file "$1" .) ;;
+		json) __TOML__=$(<"$1") ;;
+		*) abort "config extension not supported" ;;
+	esac
 }
 toml_get_table_names() { jq -r -e 'to_entries[] | select(.value | type == "object") | .key' <<<"$__TOML__"; }
 toml_get_table_main() { jq -r -e 'to_entries | map(select(.value | type != "object")) | from_entries' <<<"$__TOML__"; }
@@ -47,34 +46,27 @@ abort() {
 java() { command java "$@"; }
 
 install_pkg() {
-	local cmd=$1
-	local pkg=${2:-$1}
-	if command -v "$cmd" >/dev/null 2>&1; then
-		return 0
-	fi
+	local cmd=$1 pkg=${2:-$1}
+	command -v "$cmd" >/dev/null 2>&1 && return 0
 	pr "Installing $pkg..."
 
-	if command -v apt-get >/dev/null 2>&1; then
-		sudo apt-get install -y "$pkg"
-	elif command -v dnf >/dev/null 2>&1; then
-		sudo dnf install -y "$pkg"
-	elif command -v yum >/dev/null 2>&1; then
-		sudo yum install -y "$pkg"
-	elif command -v pacman >/dev/null 2>&1; then
-		sudo pacman -S --noconfirm "$pkg"
-	elif command -v apk >/dev/null 2>&1; then
-		sudo apk add "$pkg"
-	else
-	abort "Cannot auto-install $pkg. Please install it manually."
-	fi
-
+	local -a managers=("apt-get:install -y" "dnf:install -y" "yum:install -y" "pacman:-S --noconfirm" "apk:add")
+	local pm args
+	for entry in "${managers[@]}"; do
+		pm="${entry%%:*}" args="${entry#*:}"
+		if command -v "$pm" >/dev/null 2>&1; then
+			sudo "$pm" "$args" "$pkg"
+			command -v "$cmd" >/dev/null 2>&1 || abort "Failed to install $pkg"
+			return
+		fi
+	done
 	command -v "$cmd" >/dev/null 2>&1 || abort "Failed to install $pkg"
 }
 
 get_prebuilts() {
 	local cli_src=$1 cli_ver=$2 patches_src=$3 patches_ver=$4
-	pr "Getting prebuilts (${patches_src%/*})" >&2
 	local cl_dir=${patches_src%/*}
+	pr "Getting prebuilts (${cl_dir})"
 	cl_dir=${TEMP_DIR}/${cl_dir,,}-uni
 	[ -d "$cl_dir" ] || mkdir "$cl_dir"
 
@@ -82,11 +74,8 @@ get_prebuilts() {
 		set -- $src_ver
 		local src=$1 tag=$2 ver=${3-} fprefix=$4
 
-		if [ "$tag" = "CLI" ]; then
-			local grab_cl=false
-		elif [ "$tag" = "Patches" ]; then
-			local grab_cl=true
-		else abort unreachable; fi
+		local grab_cl=false
+		[ "$tag" = "Patches" ] && grab_cl=true
 
 		local dir=${src%/*}
 		dir=${TEMP_DIR}/${dir,,}-uni
@@ -106,25 +95,29 @@ get_prebuilts() {
 			name_ver="$ver"
 		fi
 
-		local url file tag_name name
+		local url file tag_name matches count
 		file=$(find "$dir" -name "*${fprefix}-${name_ver#v}.*" -type f 2>/dev/null)
 		if [ -z "$file" ]; then
-			local resp asset name
+			local resp name
 			resp=$(gh_req "$uni_rel" -) || return 1
 			tag_name=$(jq -r '.tag_name' <<<"$resp")
 			matches=$(jq -e '.assets | map(select(.name | endswith("asc") | not))' <<<"$resp")
-			if [ "$(jq 'length' <<<"$matches")" -gt 1 ]; then
-				matches=$(jq -e -r 'map(select(.name | contains("-dev") | not))' <<<"$matches")
+			count=$(jq 'length' <<<"$matches")
+			if [ "$count" -gt 1 ]; then
+				local matches_new
+				matches_new=$(jq -e -r 'map(select(.name | contains("-dev") | not))' <<<"$matches")
+				if [ "$(jq 'length' <<<"$matches_new")" -eq 1 ]; then
+					matches=$matches_new
+					count=1
+				fi
 			fi
-			if [ "$(jq 'length' <<<"$matches")" -eq 0 ]; then
+			if [ "$count" -eq 0 ]; then
 				epr "No asset was found"
 				return 1
-			elif [ "$(jq 'length' <<<"$matches")" -ne 1 ]; then
-				wpr "More than 1 asset was found for this cli release. Falling back to the first one found..."
+			elif [ "$count" -ne 1 ]; then
+				wpr "More than 1 asset was found for this release. Falling back to the first one found..."
 			fi
-			asset=$(jq -r ".[0]" <<<"$matches")
-			url=$(jq -r .url <<<"$asset")
-			name=$(jq -r .name <<<"$asset")
+			read -r url name < <(jq -r '.[0] | "\(.url)\t\(.name)"' <<<"$matches")
 			file="${dir}/${name}"
 			gh_dl "$file" "$url" >&2 || return 1
 			echo "> ⚙️ » $tag: \`$(cut -d/ -f1 <<<"$src")/${name}\`  " >>"${cl_dir}/changelog.md"
@@ -179,10 +172,9 @@ _req() {
 	fi
 }
 ua() {
-	local ver major
+	local ver
 	ver=$(curl -sf "https://product-details.mozilla.org/1.0/firefox_versions.json" | jq -re '.LATEST_FIREFOX_VERSION') || ver="148.0"
-	major=${ver%%.*}
-	echo "Mozilla/5.0 (X11; Linux x86_64; rv:${major}.0) Gecko/20100101 Firefox/${major}.0"
+	echo "Mozilla/5.0 (X11; Linux x86_64; rv:${ver%%.*}.0) Gecko/20100101 Firefox/${ver%%.*}.0"
 }
 req() {
 	if [ -z "${_UA:-}" ]; then _UA=$(ua); fi
@@ -204,14 +196,13 @@ get_highest_ver() {
 	if ! semver_validate "$m"; then echo "$m"; else sort -rV <<<"$vers" | head -1; fi
 }
 semver_validate() {
-	local a="${1%-*}"
-	a="${a#v}"
-	local ac="${a//[.0-9]/}"
-	[ ${#ac} = 0 ]
+    local a="${1%-*}"
+    a="${a#v}"
+    [ -z "${a//[.0-9]/}" ]
 }
 get_patch_last_supported_ver() {
 	local list_patches=$1 pkg_name=$2 inc_sel=$3 _exc_sel=$4 _exclusive=$5 # TODO: resolve using all of these
-	local op
+	local op pcount av_apps
 	if [ "$inc_sel" ]; then
 		if ! op=$(awk '{$1=$1}1' <<<"$list_patches"); then
 			epr "list-patches: '$op'"
@@ -281,7 +272,7 @@ dl_apkmirror() {
 		is_bundle=true
 	else
 		if [ "$arch" = "arm-v7a" ]; then arch="armeabi-v7a"; fi
-		local resp node app_table apkmname dlurl=""
+		local resp node apkmname dlurl=""
 		apkmname=$($HTMLQ "h1.marginZero" --text <<<"$__APKMIRROR_RESP__")
 		apkmname="${apkmname,,}" apkmname="${apkmname// /-}" apkmname="${apkmname//[^a-z0-9-]/}"
 		url="${url}/${apkmname}-${version//./-}-release/"
@@ -345,7 +336,7 @@ dl_uptodown() {
 		apparch=('arm64-v8a, armeabi-v7a, x86_64' 'arm64-v8a, armeabi-v7a, x86, x86_64' 'arm64-v8a, armeabi-v7a')
 	else apparch=("$arch" 'arm64-v8a, armeabi-v7a, x86_64' 'arm64-v8a, armeabi-v7a, x86, x86_64' 'arm64-v8a, armeabi-v7a'); fi
 
-	local op resp data_code
+	local i op resp data_code
 	data_code=$($HTMLQ "#detail-app-name" --attribute data-code <<<"$__UPTODOWN_RESP__")
 	local versionURL=""
 	local is_bundle=false
@@ -565,17 +556,12 @@ build_uni() {
 	done
 	patched_apk="${TEMP_DIR}/${app_name_l}-${brand_f}-${version_f}-${arch_f}.apk"
 
-	if [ "$arch" = "arm64-v8a" ]; then
-		patcher_args+=("--striplibs arm64-v8a")
-	elif [ "$arch" = "arm-v7a" ]; then
-		patcher_args+=("--striplibs armeabi-v7a")
-	elif [ "$arch" = "x86" ]; then
-		patcher_args+=("--striplibs x86")
-	elif [ "$arch" = "x86_64" ]; then
-		patcher_args+=("--striplibs x86_64")
-	else
-		patcher_args+=("--striplibs arm64-v8a,armeabi-v7a")
-	fi
+	case "$arch" in
+		"arm-v7a") libs="armeabi-v7a" ;;
+		"arm64-v8a"|"x86"|"x86_64") libs="$arch" ;;
+		*) libs="arm64-v8a,armeabi-v7a" ;;
+	esac
+	patcher_args+=("--striplibs $libs")
 	local stock_apk_input
 	if [ -f "${stock_apk}.apkm" ]; then stock_apk_input="${stock_apk}.apkm"; else stock_apk_input="$stock_apk"; fi
 	if [ "${NORB:-}" != true ] || [ ! -f "$patched_apk" ]; then
