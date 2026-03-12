@@ -65,7 +65,7 @@ install_pkg() {
 	elif command -v apk >/dev/null 2>&1; then
 		sudo apk add "$pkg"
 	else
-		abort "Cannot auto-install $pkg. Please install it manually."
+	abort "Cannot auto-install $pkg. Please install it manually."
 	fi
 
 	command -v "$cmd" >/dev/null 2>&1 || abort "Failed to install $pkg"
@@ -140,8 +140,8 @@ get_prebuilts() {
 			tag_name=v${tag_name%.*}
 		fi
 
-		if [ "$tag" = "Patches" ]; then
-			if [ $grab_cl = true ]; then echo -e "[🔗 » Changelog](https://github.com/${src}/releases/tag/${tag_name})\n" >>"${cl_dir}/changelog.md"; fi
+		if [ "$tag" = "Patches" ] && [ $grab_cl = true ]; then
+			echo -e "[🔗 » Changelog](https://github.com/${src}/releases/tag/${tag_name})\n" >>"${cl_dir}/changelog.md"
 		fi
 		echo -n "$file "
 	done
@@ -157,8 +157,9 @@ set_prebuilts() {
 _req() {
 	local ip="$1" op="$2"
 	shift 2
+	local curl_args=(-L -c "$TEMP_DIR/cookie.txt" -b "$TEMP_DIR/cookie.txt" --connect-timeout 5 --retry 0 --fail -s -S "$@" "$ip")
 	if [ "$op" = - ]; then
-		if ! curl -L -c "$TEMP_DIR/cookie.txt" -b "$TEMP_DIR/cookie.txt" --connect-timeout 5 --retry 0 --fail -s -S "$@" "$ip"; then
+		if ! curl "${curl_args[@]}"; then
 			epr "Request failed: $ip"
 			return 1
 		fi
@@ -170,7 +171,7 @@ _req() {
 			while [ -f "$dlp" ]; do sleep 1; done
 			return
 		fi
-		if ! curl -L -c "$TEMP_DIR/cookie.txt" -b "$TEMP_DIR/cookie.txt" --connect-timeout 5 --retry 0 --fail -s -S "$@" "$ip" -o "$dlp"; then
+		if ! curl "${curl_args[@]}" -o "$dlp"; then
 			epr "Request failed: $ip"
 			return 1
 		fi
@@ -179,7 +180,7 @@ _req() {
 }
 ua() {
 	local ver major
-	ver=$(curl -sf "https://product-details.mozilla.org/1.0/firefox_versions.json" | grep -o '"LATEST_FIREFOX_VERSION"[[:space:]]*:[[:space:]]*"[0-9.]*"' | grep -o '[0-9][0-9.]*') || ver="148.0"
+	ver=$(curl -sf "https://product-details.mozilla.org/1.0/firefox_versions.json" | jq -re '.LATEST_FIREFOX_VERSION') || ver="148.0"
 	major=${ver%%.*}
 	echo "Mozilla/5.0 (X11; Linux x86_64; rv:${major}.0) Gecko/20100101 Firefox/${major}.0"
 }
@@ -542,19 +543,16 @@ build_uni() {
 	fi
 	log "🟢 » ${table}: \`${version}\`"
 
-	local microg_patch
+	local microg_patch disable_psu_patch
 	microg_patch=$(grep "^Name: " <<<"$list_patches" | grep -i "gmscore\|microg" || :) microg_patch=${microg_patch#*: }
-	if [ -n "$microg_patch" ] && [[ ${p_patcher_args[*]} =~ $microg_patch ]]; then
-		wpr "You cant include/exclude microg patch as that's done by builder automatically."
-		p_patcher_args=("${p_patcher_args[@]//-[ei] ${microg_patch}/}")
-	fi
-
-	local disable_psu_patch
 	disable_psu_patch=$(grep "^Name: " <<<"$list_patches" | grep -i "disable play store updates" || :) disable_psu_patch=${disable_psu_patch#*: }
-	if [ -n "$disable_psu_patch" ] && [[ ${p_patcher_args[*]} =~ $disable_psu_patch ]]; then
-		wpr "You cant include/exclude disable play store updates patch as that's done by builder automatically."
-		p_patcher_args=("${p_patcher_args[@]//-[ei] ${disable_psu_patch}/}")
-	fi
+	for _auto_patch in "$microg_patch" "$disable_psu_patch"; do
+		[ -z "$_auto_patch" ] && continue
+		if [[ ${p_patcher_args[*]} =~ $_auto_patch ]]; then
+			wpr "You can't include/exclude '$_auto_patch' patch as that's done by builder automatically."
+			p_patcher_args=("${p_patcher_args[@]//-[de] \"${_auto_patch}\"/}")
+		fi
+	done
 
 	local patcher_args patched_apk
 	local brand_f=${args[brand],,}
@@ -562,12 +560,9 @@ build_uni() {
 	if [ "${args[patcher_args]}" ]; then p_patcher_args+=("${args[patcher_args]}"); fi
 	patcher_args=("${p_patcher_args[@]}")
 	pr "Building '${table}'"
-	if [ -n "$microg_patch" ]; then
-		patcher_args+=("-e \"${microg_patch}\"")
-	fi
-	if [ -n "$disable_psu_patch" ]; then
-		patcher_args+=("-e \"${disable_psu_patch}\"")
-	fi
+	for _auto_patch in "$microg_patch" "$disable_psu_patch"; do
+		[ -n "$_auto_patch" ] && patcher_args+=("-e \"${_auto_patch}\"")
+	done
 	patched_apk="${TEMP_DIR}/${app_name_l}-${brand_f}-${version_f}-${arch_f}.apk"
 
 	if [ "$arch" = "arm64-v8a" ]; then
